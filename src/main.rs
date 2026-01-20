@@ -8,19 +8,19 @@ use uuid::Uuid;
 #[derive(Parser)]
 struct Args {
     /// 运行服务端模式
-    #[arg(long, default_value_t = false, group = "mode")]
+    #[arg(short, long, default_value_t = false, group = "mode")]
     server: bool,
 
     /// 运行客户端模式
-    #[arg(long, default_value_t = true, group = "mode")]
+    #[arg(short, long, default_value_t = true, group = "mode")]
     client: bool,
 
     /// 服务端模式下的代理地址，客户端模式下的远程连接地址
-    #[arg(short, long)]
+    #[arg(long)]
     proxy_addr: String,
 
     /// 服务端模式下的监听地址，客户端模式下的本地监听地址
-    #[arg(short, long, default_value = "0.0.0.0:25565")]
+    #[arg(long, default_value = "0.0.0.0:25565")]
     listen_addr: String,
 }
 
@@ -30,12 +30,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if !args.client && !args.server {
         eprintln!("Error: You should specify one mode")
-    } else if args.client {
-        println!("Run in client mode...");
-        run_client(&args).await?;
-    } else {
+    } else if args.server {
         println!("Run in server mode...");
         run_server(&args).await?;
+    } else {
+        println!("Run in client mode...");
+        run_client(&args).await?;
     }
 
     Ok(())
