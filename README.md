@@ -14,21 +14,21 @@ Usage: tcp-kcp-wrapper.exe [OPTIONS] --proxy-addr <PROXY_ADDR>
 Options:
       --server                     运行服务端模式
       --client                     运行客户端模式
-  -p, --proxy-addr <PROXY_ADDR>    服务端模式下的代理端口
-  -l, --listen-addr <LISTEN_ADDR>  客户端连接的目标地址 [default: 0.0.0.0:25565]
+  -p, --proxy-addr <PROXY_ADDR>    服务端模式下的代理地址，客户端模式下的远程连接地址
+  -l, --listen-addr <LISTEN_ADDR>  服务端模式下的监听地址，客户端模式下的本地监听地址 [default: 0.0.0.0:25565]
   -h, --help                       Print help
 ```
 
 对于客户端直接使用
 ```
-.\tcp-kcp-wrapper --proxy-addr <远程地址>
+./tcp-kcp-wrapper --proxy-addr <远程地址>
 ```
 就只可以直接在本地 25565 端口开一个入口端口，连接即可访问远程服务
 
 比如
 
 ```
-.\tcp-kcp-wrapper.exe --proxy-addr 1.1.1.1:25565
+./tcp-kcp-wrapper --proxy-addr 1.1.1.1:25565
 ```
 
 对于服务端，可以这样使用

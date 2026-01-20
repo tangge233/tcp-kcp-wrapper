@@ -14,11 +14,11 @@ struct Args {
     #[arg(long, default_value_t = true, group = "mode")]
     client: bool,
 
-    /// 服务端模式下的代理端口
+    /// 服务端模式下的代理地址，客户端模式下的远程连接地址
     #[arg(short, long)]
     proxy_addr: String,
 
-    /// 客户端连接的目标地址
+    /// 服务端模式下的监听地址，客户端模式下的本地监听地址
     #[arg(short, long, default_value = "0.0.0.0:25565")]
     listen_addr: String,
 }
@@ -83,7 +83,7 @@ async fn handle_server_session(
                     }
                 }
             }
-            
+
             // KCP → TCP
             result = kcp_stream.read(&mut kcp_to_tcp_buffer) => {
                 match result {
@@ -100,7 +100,7 @@ async fn handle_server_session(
             }
         }
     }
-    
+
     Ok(())
 }
 
