@@ -32,10 +32,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Error: You should specify one mode")
     } else if args.client {
         println!("Run in client mode...");
-        run_server(&args).await?;
+        run_client(&args).await?;
     } else {
         println!("Run in server mode...");
-        run_client(&args).await?;
+        run_server(&args).await?;
     }
 
     Ok(())
