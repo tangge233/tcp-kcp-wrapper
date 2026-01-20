@@ -1,8 +1,9 @@
 use clap::Parser;
 use kcp::{KcpConfig, KcpNoDelayConfig, KcpStream, KcpUdpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::sync::{Arc, LazyLock};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use uuid::Uuid;
 
 #[derive(Parser)]
 struct Args {
@@ -27,13 +28,13 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
+    if !(args.client ^ args.server) {
+        eprintln!("Error: Your shoud specify only one mode")
+    }
     if args.server {
         run_server(&args).await?;
     } else if args.client {
         run_client(&args).await?;
-    } else {
-        eprintln!("Error: must specify --server or --client");
-        std::process::exit(1);
     }
 
     Ok(())
@@ -54,54 +55,19 @@ async fn run_server(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         println!("New connection from {:?}", income_connection.1);
         let proxy_addr = args.proxy_addr.clone();
         tokio::spawn(async move {
-            let _ = handle_server_session(proxy_addr, income_connection.0).await;
+            let session_id = Uuid::new_v4().to_string();
+            if let Ok(tcp_stream) = TcpStream::connect(&proxy_addr).await {
+                let session_result =
+                    handle_session(tcp_stream, income_connection.0, session_id.clone()).await;
+                handle_session_result(session_id, session_result);
+            } else {
+                eprintln!(
+                    "Session {}: Failed to connection to tcp endpoint({})",
+                    session_id, proxy_addr
+                );
+            };
         });
     }
-}
-
-async fn handle_server_session(
-    tcp_addr: String,
-    mut kcp_stream: KcpStream,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut tcp_session = TcpStream::connect(tcp_addr).await?;
-    let mut tcp_to_kcp_buffer = [0; 4096];
-    let mut kcp_to_tcp_buffer = [0; 4096];
-
-    loop {
-        tokio::select! {
-            // TCP → KCP
-            result = tcp_session.read(&mut tcp_to_kcp_buffer) => {
-                match result {
-                    Ok(0) => break,  // TCP连接关闭
-                    Ok(n) => {
-                        kcp_stream.write_all(&tcp_to_kcp_buffer[..n]).await?;
-                        kcp_stream.flush().await?;
-                    }
-                    Err(e) => {
-                        eprintln!("TCP read error: {}", e);
-                        break;
-                    }
-                }
-            }
-
-            // KCP → TCP
-            result = kcp_stream.read(&mut kcp_to_tcp_buffer) => {
-                match result {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        tcp_session.write_all(&kcp_to_tcp_buffer[..n]).await?;
-                        tcp_session.flush().await?;
-                    }
-                    Err(e) => {
-                        eprintln!("KCP read error: {}", e);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 async fn run_client(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -110,21 +76,28 @@ async fn run_client(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let (tcp_stream, _) = tcp_listener.accept().await?;
         println!("New connection from {:?}", tcp_stream.peer_addr()?);
-        let kcp_addr = args.proxy_addr.clone();
+        let remote_addr = args.proxy_addr.clone();
         tokio::spawn(async move {
-            let _ = handle_client_session(tcp_stream, kcp_addr).await;
+            let session_id = Uuid::new_v4().to_string();
+            if let Ok(kcp_stream) = KcpUdpStream::connect(KCP_CONFIG.clone(), &remote_addr).await {
+                let session_result =
+                    handle_session(tcp_stream, kcp_stream.0, session_id.clone()).await;
+                handle_session_result(session_id, session_result);
+            } else {
+                eprintln!(
+                    "Session {}: Failed to connect to kcp endpoint({})",
+                    session_id, remote_addr
+                );
+            };
         });
     }
-
-    Ok(())
 }
 
-async fn handle_client_session(
+async fn handle_session(
     mut tcp_stream: TcpStream,
-    kcp_addr: String,
+    mut kcp_stream: KcpStream,
+    session_id: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut kcp_connection = KcpUdpStream::connect(KCP_CONFIG.clone(), kcp_addr).await?;
-    let mut kcp_stream = kcp_connection.0;
     let mut tcp_to_kcp_buffer = [0; 4096];
     let mut kcp_to_tcp_buffer = [0; 4096];
 
@@ -133,13 +106,13 @@ async fn handle_client_session(
             // TCP → KCP
             result = tcp_stream.read(&mut tcp_to_kcp_buffer) => {
                 match result {
-                    Ok(0) => break,  // TCP连接关闭
+                    Ok(0) => break,
                     Ok(n) => {
                         kcp_stream.write_all(&tcp_to_kcp_buffer[..n]).await?;
                         kcp_stream.flush().await?;
                     },
                     Err(e) => {
-                        eprintln!("TCP read error: {}", e);
+                        eprintln!("Session {}: TCP read error: {}", session_id, e);
                         break;
                     }
                 }
@@ -154,7 +127,7 @@ async fn handle_client_session(
                         tcp_stream.flush().await?;
                     },
                     Err(e) => {
-                        eprintln!("KCP read error: {}", e);
+                        eprintln!("Sessoin {}: KCP read error: {}", session_id, e);
                         break;
                     }
                 }
@@ -162,11 +135,23 @@ async fn handle_client_session(
         }
     }
 
-
     Ok(())
 }
 
-static KCP_CONFIG: LazyLock<Arc<KcpConfig>> = LazyLock::new(||{
+fn handle_session_result(session_id: String, result: Result<(), Box<dyn std::error::Error>>) {
+    match result {
+        Err(e) => {
+            eprintln!(
+                "Session {}: occurred an error, {}",
+                session_id,
+                e.to_string()
+            )
+        }
+        Ok(()) => println!("Session {}: End of life.", session_id),
+    }
+}
+
+static KCP_CONFIG: LazyLock<Arc<KcpConfig>> = LazyLock::new(|| {
     Arc::new(KcpConfig {
         mtu: 1400,
         stream: true,
@@ -176,6 +161,8 @@ static KCP_CONFIG: LazyLock<Arc<KcpConfig>> = LazyLock::new(||{
             resend: 2,
             nc: true,
         },
+        rcv_wnd: 1024,
+        snd_wnd: 1024,
         ..Default::default()
     })
 });
