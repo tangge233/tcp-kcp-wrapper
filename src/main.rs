@@ -103,23 +103,30 @@ async fn run_client(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+const BUFFER_SIZE: usize = 8192;
+
 async fn handle_session(
     mut tcp_stream: TcpStream,
     mut kcp_stream: KcpStream,
     session_id: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut tcp_to_kcp_buffer = [0; 4096];
-    let mut kcp_to_tcp_buffer = [0; 4096];
+    let mut tcp_to_kcp_buffer = [0u8; BUFFER_SIZE];
+    let mut kcp_to_tcp_buffer = [0u8; BUFFER_SIZE];
 
     loop {
         tokio::select! {
             // TCP → KCP
             result = tcp_stream.read(&mut tcp_to_kcp_buffer) => {
                 match result {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        println!("Session {}: TCP stream reach to the end", session_id);
+                        break;
+                    },
                     Ok(n) => {
-                        kcp_stream.write_all(&tcp_to_kcp_buffer[..n]).await?;
-                        kcp_stream.flush().await?;
+                        if let Err(e) = kcp_stream.write_all(&tcp_to_kcp_buffer[..n]).await{
+                            eprintln!("Session {}: KCP stream write error: {}", session_id, e.to_string());
+                            break;
+                        }
                     },
                     Err(e) => {
                         eprintln!("Session {}: TCP read error: {}", session_id, e);
@@ -131,19 +138,39 @@ async fn handle_session(
             // KCP → TCP
             result = kcp_stream.read(&mut kcp_to_tcp_buffer) => {
                 match result {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        println!("Session {}: KCP stream reach to the end", session_id);
+                        break;
+                    },
                     Ok(n) => {
-                        tcp_stream.write_all(&kcp_to_tcp_buffer[..n]).await?;
-                        tcp_stream.flush().await?;
+                        if let Err(e) = tcp_stream.write_all(&kcp_to_tcp_buffer[..n]).await {
+                            eprintln!("Session {}: TCP stream write error: {}", session_id, e.to_string());
+                            break;
+                        }
                     },
                     Err(e) => {
-                        eprintln!("Sessoin {}: KCP read error: {}", session_id, e);
+                        eprintln!("Session {}: KCP read error: {}", session_id, e);
                         break;
                     }
                 }
             }
         }
     }
+
+    if let Err(e) = tcp_stream.shutdown().await {
+        eprintln!(
+            "Session {}: TCP shutdown error (ignored): {}",
+            session_id, e
+        );
+    }
+    if let Err(e) = kcp_stream.shutdown().await {
+        eprintln!(
+            "Session {}: KCP shutdown error (ignored): {}",
+            session_id, e
+        );
+    }
+
+    println!("Session {} closed", session_id);
 
     Ok(())
 }
