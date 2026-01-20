@@ -22,36 +22,21 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: tcp-kcp-wrapper-x86_64-pc-windows-msvc.zip
-          
+
           # Windows x32
           - os: windows-latest
             target: i686-pc-windows-msvc
             name: tcp-kcp-wrapper-i686-pc-windows-msvc.zip
-          
+
           # Windows ARM64
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             name: tcp-kcp-wrapper-aarch64-pc-windows-msvc.zip
-          
+
           # Linux x64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: tcp-kcp-wrapper-x86_64-unknown-linux-gnu.tar.gz
-          
-          # Linux x32
-          - os: ubuntu-latest
-            target: i686-unknown-linux-gnu
-            name: tcp-kcp-wrapper-i686-unknown-linux-gnu.tar.gz
-          
-          # Linux ARM64
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            name: tcp-kcp-wrapper-aarch64-unknown-linux-gnu.tar.gz
-          
-          # Linux ARM32
-          - os: ubuntu-latest
-            target: armv7-unknown-linux-gnueabihf
-            name: tcp-kcp-wrapper-armv7-unknown-linux-gnueabihf.tar.gz
 
     steps:
       - name: Checkout
@@ -80,7 +65,7 @@ jobs:
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
-        
+
       - name: Package (Windows)
         if: contains(matrix.target, 'windows')
         run: |
