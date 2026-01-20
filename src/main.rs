@@ -28,12 +28,13 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    if !(args.client ^ args.server) {
-        eprintln!("Error: Your shoud specify only one mode")
-    }
-    if args.server {
-        run_server(&args).await?;
+    if !args.client && !args.server {
+        eprintln!("Error: You should specify one mode")
     } else if args.client {
+        println!("Run in client mode...");
+        run_server(&args).await?;
+    } else {
+        println!("Run in server mode...");
         run_client(&args).await?;
     }
 
@@ -51,11 +52,15 @@ async fn run_server(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     loop {
+        println!("Waiting for new client connection...");
         let income_connection = kcp_listener.accept().await?;
-        println!("New connection from {:?}", income_connection.1);
+        let session_id = Uuid::new_v4().to_string();
+        println!(
+            "New connection from client {:?}, with session id {}",
+            income_connection.1, session_id
+        );
         let proxy_addr = args.proxy_addr.clone();
         tokio::spawn(async move {
-            let session_id = Uuid::new_v4().to_string();
             if let Ok(tcp_stream) = TcpStream::connect(&proxy_addr).await {
                 let session_result =
                     handle_session(tcp_stream, income_connection.0, session_id.clone()).await;
@@ -74,11 +79,16 @@ async fn run_client(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     let tcp_listener = TcpListener::bind(&args.listen_addr).await?;
     println!("Client TCP listening on {:?}", tcp_listener.local_addr()?);
     loop {
+        println!("Waiting for new connection...");
+        let session_id = Uuid::new_v4().to_string();
         let (tcp_stream, _) = tcp_listener.accept().await?;
-        println!("New connection from {:?}", tcp_stream.peer_addr()?);
+        println!(
+            "New connection from {:?}, with session id {}",
+            tcp_stream.peer_addr()?,
+            session_id
+        );
         let remote_addr = args.proxy_addr.clone();
         tokio::spawn(async move {
-            let session_id = Uuid::new_v4().to_string();
             if let Ok(kcp_stream) = KcpUdpStream::connect(KCP_CONFIG.clone(), &remote_addr).await {
                 let session_result =
                     handle_session(tcp_stream, kcp_stream.0, session_id.clone()).await;
